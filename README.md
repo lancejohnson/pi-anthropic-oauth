@@ -12,6 +12,7 @@ Use Claude Pro/Max in Pi with browser OAuth.
 - Claude Pro/Max login from `/login`
 - Automatic token refresh
 - Claude Code-compatible OAuth headers and prompt shaping
+- Usage-aware 429 errors with spend-limit, scoped-model, and reset details
 - No Anthropic API key needed
 - Uses the Anthropic models available in Pi's built-in model registry
 - Auto-creates `~/.Claude Code` → `~/.pi` symlink when missing
@@ -105,6 +106,10 @@ To add another Anthropic model, create `~/.pi/agent/models.json`:
 > Pi requires `baseUrl`, `apiKey`, and `api` when defining custom models in `models.json`. With this extension, requests normally authenticate through Claude Pro/Max OAuth after `/login`, so `apiKey` is only a placeholder to satisfy Pi's config requirements and does not need to be a valid Anthropic API key.
 >
 > Do not use a fake `sk-ant-oat...` value as the placeholder. If OAuth login has not completed, Pi may try to use that fake token and Anthropic will return `401 Invalid bearer token`. Use a harmless placeholder such as `"unused"`, then run `/login` and choose `Claude Pro/Max`.
+
+## Usage-aware rate-limit errors
+
+Anthropic's Messages API often returns a generic `429 rate_limit_error` even when the actual cause is a plan allowance or usage-credit spend cap. For OAuth requests, this extension queries Anthropic's `/api/oauth/usage` endpoint after a 429 and replaces the generic error when it can identify the specific limit. The lookup is best-effort, cached briefly to avoid repeated requests during retries, and falls back to the original API error if usage details are unavailable.
 
 ## Troubleshooting
 

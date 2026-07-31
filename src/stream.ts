@@ -19,6 +19,11 @@ import {
   type IndexedBlock,
 } from "./convert.js";
 import { buildAnthropicSystemPrompt } from "./prompt.js";
+import {
+  formatAnthropicUsageLimitError,
+  getCachedAnthropicOAuthUsage,
+  isRateLimitError,
+} from "./usage.js";
 
 const REQUIRED_BETAS = [
   "claude-code-20250219",
@@ -98,6 +103,8 @@ export function streamAnthropicOAuth(
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
   const stream = createAssistantMessageEventStream();
+  const apiKey = options?.apiKey;
+  const isOAuth = apiKey ? isClaudeOAuthAccessToken(apiKey) : false;
 
   void (async () => {
     const output: AssistantMessage = {
@@ -119,14 +126,12 @@ export function streamAnthropicOAuth(
     };
 
     try {
-      const apiKey = options?.apiKey;
       if (!apiKey) {
         throw new Error(
           "No Anthropic auth available. Run /login and choose Claude Pro/Max.",
         );
       }
 
-      const isOAuth = isClaudeOAuthAccessToken(apiKey);
       const defaultHeaders = makeDefaultHeaders(isOAuth, options);
 
       if (isOAuth) defaultHeaders.authorization = `Bearer ${apiKey}`;
@@ -424,8 +429,23 @@ export function streamAnthropicOAuth(
         delete block.partialJson;
       }
       output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-      output.errorMessage =
+      const originalError =
         error instanceof Error ? error.message : String(error);
+      output.errorMessage = originalError;
+
+      if (
+        isOAuth &&
+        apiKey &&
+        !options?.signal?.aborted &&
+        isRateLimitError(error)
+      ) {
+        const usage = await getCachedAnthropicOAuthUsage(apiKey, model.baseUrl);
+        const enrichedError = usage
+          ? formatAnthropicUsageLimitError(usage, model.id)
+          : undefined;
+        if (enrichedError) output.errorMessage = enrichedError;
+      }
+
       stream.push({ type: "error", reason: output.stopReason, error: output });
       stream.end();
     }
