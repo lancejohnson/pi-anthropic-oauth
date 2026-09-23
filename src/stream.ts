@@ -5,7 +5,8 @@ import {
   type AssistantMessage,
   type AssistantMessageEventStream,
   calculateCost,
-  type Context,
+  type TranscriptContext,
+  type ToolCall,
   createAssistantMessageEventStream,
   type Model,
   type SimpleStreamOptions,
@@ -19,6 +20,7 @@ import {
   type IndexedBlock,
 } from "./convert.js";
 import { buildAnthropicSystemPrompt } from "./prompt.js";
+import { resolveProviderContext } from "./context.js";
 import {
   formatAnthropicUsageLimitError,
   getCachedAnthropicOAuthUsage,
@@ -99,7 +101,7 @@ function makeDefaultHeaders(
 
 export function streamAnthropicOAuth(
   model: Model<Api>,
-  context: Context,
+  context: TranscriptContext,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
   const stream = createAssistantMessageEventStream();
@@ -154,10 +156,11 @@ export function streamAnthropicOAuth(
         stream: true,
       };
 
-      const system = buildAnthropicSystemPrompt(context.systemPrompt, isOAuth);
+      const { systemPrompt, tools } = resolveProviderContext(context.messages);
+      const system = buildAnthropicSystemPrompt(systemPrompt, isOAuth);
       if (system) params.system = system as never;
-      if (context.tools?.length)
-        params.tools = convertPiToolsToAnthropic(context.tools, isOAuth);
+      if (tools.length)
+        params.tools = convertPiToolsToAnthropic(tools, isOAuth);
 
       if (options?.reasoning && model.reasoning && maxTokens > 1) {
         const defaultBudgets: Record<string, number> = {
@@ -273,7 +276,7 @@ export function streamAnthropicOAuth(
               name: isOAuth
                 ? fromClaudeCodeToolName(
                     event.content_block.name,
-                    context.tools,
+                    tools,
                   )
                 : event.content_block.name,
               arguments: {},
@@ -327,10 +330,7 @@ export function streamAnthropicOAuth(
           ) {
             block.partialJson += event.delta.partial_json;
             try {
-              block.arguments = JSON.parse(block.partialJson) as Record<
-                string,
-                unknown
-              >;
+              block.arguments = JSON.parse(block.partialJson) as ToolCall["arguments"];
             } catch {}
             stream.push({
               type: "toolcall_delta",
@@ -366,10 +366,7 @@ export function streamAnthropicOAuth(
             });
           } else if (block.type === "toolCall") {
             try {
-              block.arguments = JSON.parse(block.partialJson) as Record<
-                string,
-                unknown
-              >;
+              block.arguments = JSON.parse(block.partialJson) as ToolCall["arguments"];
             } catch {}
             delete (block as { partialJson?: string }).partialJson;
             stream.push({
