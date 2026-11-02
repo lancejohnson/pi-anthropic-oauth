@@ -39,6 +39,22 @@ const REQUIRED_BETAS = [
   "interleaved-thinking-2025-05-14",
 ] as const;
 
+/**
+ * Why a stop that maps to "error" happened. Without it pi reports "Unknown error": seen
+ * 2026-11-02, Opus refused a 740k-token session (stop_reason "refusal", category "cyber")
+ * and every chat and compaction call failed with no reason shown.
+ */
+export function stopErrorMessage(
+  reason: string | null | undefined,
+  details?: { explanation?: string | null; category?: string | null } | null,
+): string {
+  if (reason === "refusal") {
+    const why = details?.explanation || "The model refused to complete the request";
+    return details?.category ? `Refused (${details.category}): ${why}` : why;
+  }
+  return `Anthropic stopped with: ${reason ?? "no stop reason"}`;
+}
+
 function mapStopReason(reason: string | null | undefined): StopReason {
   switch (reason) {
     case "end_turn":
@@ -381,6 +397,12 @@ export function streamAnthropicOAuth(
 
         if (event.type === "message_delta") {
           output.stopReason = mapStopReason(event.delta.stop_reason);
+          if (output.stopReason === "error") {
+            output.errorMessage = stopErrorMessage(
+              event.delta.stop_reason,
+              (event.delta as { stop_details?: { explanation?: string; category?: string } }).stop_details,
+            );
+          }
           output.usage.input =
             (event.usage as { input_tokens?: number }).input_tokens ||
             output.usage.input;
@@ -411,6 +433,7 @@ export function streamAnthropicOAuth(
       }
 
       if (options?.signal?.aborted) throw new Error("Request aborted");
+      if (output.stopReason === "error") throw new Error(output.errorMessage);
       stream.push({
         type: "done",
         reason: output.stopReason as "stop" | "length" | "toolUse",
