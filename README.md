@@ -78,6 +78,12 @@ PI_ANTHROPIC_OAUTH_REWRITE_PATTERN='/\bpi\b/gi'
 
 There is no separate off mode. If you need to disable rewriting entirely, use a custom pattern that never matches, such as `(?!)`. Disabling or weakening the rewrite may affect OAuth compatibility.
 
+## Prompt cache retention
+
+The provider honors Pi's `cacheRetention` request option: `none` removes cache markers, `short` uses the default five-minute cache, and `long` requests a one-hour cache on compatible models. Explicit request options take precedence over `PI_CACHE_RETENTION=long`; provider-scoped environment values take precedence over the process environment. Without a long preference, retention defaults to short.
+
+Long retention can avoid rewriting a cached prefix after pauses of five to sixty minutes. It also has a higher cache-write API rate; fewer cache misses do not establish lower subscription-quota consumption.
+
 ## Extra models
 
 To add another Anthropic model, create `~/.pi/agent/models.json`:

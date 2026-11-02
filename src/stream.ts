@@ -178,6 +178,26 @@ export function streamAnthropicOAuth(
       if (tools.length)
         params.tools = convertPiToolsToAnthropic(tools, isOAuth);
 
+      // Match Pi's built-in retention policy, including cache-free summary calls.
+      const retention = options?.cacheRetention ??
+        ((options?.env?.PI_CACHE_RETENTION || process.env.PI_CACHE_RETENTION) === "long" ? "long" : "short");
+      const supportsLong = !model.compat || !("supportsLongCacheRetention" in model.compat) ||
+        model.compat.supportsLongCacheRetention !== false;
+      const cacheControl = retention === "none" ? undefined : {
+        type: "ephemeral" as const,
+        ...(retention === "long" && supportsLong ? { ttl: "1h" as const } : {}),
+      };
+      const cacheBlocks = [
+        ...(Array.isArray(params.system) ? params.system : []),
+        ...params.messages.flatMap((message) => Array.isArray(message.content) ? message.content : []),
+      ];
+      for (const block of cacheBlocks) {
+        if ("cache_control" in block) {
+          if (cacheControl) block.cache_control = cacheControl;
+          else delete block.cache_control;
+        }
+      }
+
       if (options?.reasoning && model.reasoning && maxTokens > 1) {
         const defaultBudgets: Record<string, number> = {
           minimal: 1024,
